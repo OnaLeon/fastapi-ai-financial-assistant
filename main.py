@@ -8,9 +8,9 @@ from rag import (
     find_relevant_chunks,
 )
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 from pydantic import BaseModel
 
 
@@ -22,7 +22,10 @@ app = FastAPI()
 
 # Create Gemini client
 client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
+    api_key=os.getenv("GEMINI_API_KEY"),
+    http_options=types.HttpOptions(
+        timeout=30000
+    )
 )
 
 document = load_document()
@@ -32,7 +35,7 @@ chunk_embeddings = create_chunk_embeddings(chunks)
 # Create one chat session
 # This object will remember the conversation while the server is running
 chat = client.chats.create(
-    model="gemini-3.8-flash",
+    model="gemini-3.5-flash-lite",
     config=types.GenerateContentConfig(
         system_instruction="""
         You are a financial education assistant.
@@ -115,23 +118,30 @@ def ask_ai(request: Question):
                 "retrieved_chunks": len(relevant_chunks)
             }
 
-        except Exception as e:
-            print("ERROR:", e)
+        except errors.APIError as e:
+            print("ERROR:", e.code, e.message)
 
-            if attempt < max_retries - 1:
+            if e.code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Gemini free-tier quota has been reached. Please try again later."
+                )
+
+            if e.code == 503 and attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
-            else:
-                return {
-                    "error": "AI service is temporarily unavailable. Please try again later."
-                }
+                continue
 
+            raise HTTPException(
+                status_code=503,
+                detail="AI service is temporarily unavailable."
+            )
 
 @app.post("/reset")
 def reset_chat():
     global chat
 
     chat = client.chats.create(
-        model="gemini-3.8-flash",
+        model="gemini-3.5-flash-lite",
         config=types.GenerateContentConfig(
             system_instruction="""
             You are a financial education assistant.
