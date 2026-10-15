@@ -2,7 +2,7 @@
 
 A small AI-powered backend application built with Python and FastAPI.
 
-The application integrates with the Google Gemini API and provides a conversational financial education assistant with temporary conversation memory.
+The application integrates with the Google Gemini API and provides a conversational financial education assistant with temporary conversation memory and Retrieval-Augmented Generation (RAG).
 
 This project was created as a hands-on learning project focused on building and integrating LLM-powered applications.
 
@@ -13,6 +13,11 @@ This project was created as a hands-on learning project focused on building and 
 - Custom system instructions
 - Conversational memory during the current session
 - Conversation reset endpoint
+- Retrieval-Augmented Generation (RAG)
+- Document chunking with overlap
+- Semantic search using embeddings
+- Top-3 relevant context retrieval
+- Grounded answers based on source documents
 - Automatic retry handling for temporary AI service failures
 - Request validation using Pydantic
 - Environment-based API key configuration
@@ -23,6 +28,7 @@ This project was created as a hands-on learning project focused on building and 
 - Python
 - FastAPI
 - Google Gemini API
+- Gemini Embeddings
 - Pydantic
 - Uvicorn
 - python-dotenv
@@ -31,7 +37,10 @@ This project was created as a hands-on learning project focused on building and 
 
 ```text
 fastapi-ai-financial-assistant/
+├── documents/
+│   └── financial_guide.txt
 ├── main.py
+├── rag.py
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
@@ -114,7 +123,9 @@ Example response:
 
 ```json
 {
-  "answer": "Compound interest is interest calculated on both the original amount and previously accumulated interest."
+  "answer": "Compound interest means earning interest on both the original amount and previously accumulated interest.",
+  "source": "financial_guide.txt",
+  "retrieved_chunks": 3
 }
 ```
 
@@ -123,7 +134,8 @@ The assistant uses a system instruction that tells it to:
 - explain financial concepts clearly;
 - keep responses concise;
 - act as a financial education assistant;
-- avoid personalized financial advice.
+- avoid personalized financial advice;
+- answer using the retrieved document context.
 
 ### Conversation Memory
 
@@ -161,6 +173,21 @@ Example response:
 }
 ```
 
+## RAG Architecture
+
+The application uses Retrieval-Augmented Generation (RAG) to answer questions using information from a local financial guide.
+
+The document is:
+
+1. Loaded from a text file.
+2. Split into overlapping chunks.
+3. Converted into vector embeddings using Gemini Embeddings.
+4. Compared with the user's question using cosine similarity.
+5. The top 3 most relevant chunks are added to the LLM context.
+6. Gemini generates an answer grounded in the retrieved document content.
+
+This allows the assistant to answer based on the provided source material instead of relying only on the model's general knowledge.
+
 ## Error Handling
 
 The application includes basic retry logic for temporary AI service failures.
@@ -174,6 +201,7 @@ This is currently a learning project and has several intentional limitations:
 - Conversation history is stored only in application memory.
 - Conversation history is lost when the server restarts.
 - All users currently share the same conversation session.
+- Document embeddings are generated at application startup.
 - No persistent database is used yet.
 - Authentication is not implemented.
 - The application currently has no separate frontend.
@@ -188,9 +216,8 @@ Future improvements include:
 - Automated tests
 - Docker support
 - CI/CD pipeline
-- RAG (Retrieval-Augmented Generation)
-- Document upload and search
-- Vector database integration
+- Persistent vector storage
+- Support for multiple uploaded documents
 - Logging and observability
 - Azure deployment
 
@@ -204,6 +231,7 @@ The project is being used to gain practical experience with:
 - LLM API integration
 - Prompt and system instruction design
 - Conversational AI
+- Retrieval-Augmented Generation (RAG)
+- Embeddings and semantic search
 - Error handling and retries
-- RAG and AI agents
 - Production-oriented AI application development
