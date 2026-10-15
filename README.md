@@ -23,6 +23,7 @@ This project was created as a hands-on learning project focused on building and 
 - Environment-based API key configuration
 - Automatically generated Swagger/OpenAPI documentation
 - Automated unit tests with pytest
+- Docker containerization
 
 ## Tech Stack
 
@@ -33,6 +34,7 @@ This project was created as a hands-on learning project focused on building and 
 - Pydantic
 - Uvicorn
 - python-dotenv
+- Docker
 
 ## Project Structure
 
@@ -208,6 +210,28 @@ Run the tests with:
 ```bash
 pytest
 
+## Docker
+
+The application can be built and run inside a Docker container.
+
+Build the image:
+
+```bash
+docker build -t financial-assistant .
+```
+
+Run the container with the Gemini API key from the local `.env` file:
+
+```bash
+docker run --env-file .env -p 8000:8000 financial-assistant
+```
+
+The Swagger API documentation is then available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
 ## Current Limitations
 
 This is currently a learning project and has several intentional limitations:
@@ -226,7 +250,6 @@ Future improvements include:
 
 - Separate chat sessions for each user
 - Persistent conversation storage
-- Docker support
 - CI/CD pipeline
 - Persistent vector storage
 - Support for multiple uploaded documents
