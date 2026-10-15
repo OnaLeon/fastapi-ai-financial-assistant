@@ -22,6 +22,7 @@ This project was created as a hands-on learning project focused on building and 
 - Request validation using Pydantic
 - Environment-based API key configuration
 - Automatically generated Swagger/OpenAPI documentation
+- Automated unit tests with pytest
 
 ## Tech Stack
 
@@ -194,6 +195,19 @@ The application includes basic retry logic for temporary AI service failures.
 
 If the Gemini API is temporarily unavailable, the application retries the request before returning an error response.
 
+## Testing
+
+The project includes automated unit tests for core RAG functionality, including:
+
+- document chunking;
+- cosine similarity;
+- semantic similarity calculations.
+
+Run the tests with:
+
+```bash
+pytest
+
 ## Current Limitations
 
 This is currently a learning project and has several intentional limitations:
@@ -205,7 +219,6 @@ This is currently a learning project and has several intentional limitations:
 - No persistent database is used yet.
 - Authentication is not implemented.
 - The application currently has no separate frontend.
-- Automated tests are not implemented yet.
 
 ## Planned Improvements
 
@@ -213,7 +226,6 @@ Future improvements include:
 
 - Separate chat sessions for each user
 - Persistent conversation storage
-- Automated tests
 - Docker support
 - CI/CD pipeline
 - Persistent vector storage
@@ -235,3 +247,4 @@ The project is being used to gain practical experience with:
 - Embeddings and semantic search
 - Error handling and retries
 - Production-oriented AI application development
+- Automated testing with pytest
