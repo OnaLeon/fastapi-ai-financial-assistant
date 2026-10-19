@@ -17,8 +17,12 @@ from pydantic import BaseModel
 # Load variables from .env
 load_dotenv()
 
-app = FastAPI()
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.5-flash-lite"
+)
 
+app = FastAPI()
 
 # Create Gemini client
 client = genai.Client(
@@ -34,23 +38,25 @@ chunk_embeddings = create_chunk_embeddings(chunks)
 
 # Create one chat session
 # This object will remember the conversation while the server is running
-chat = client.chats.create(
-    model="gemini-3.5-flash-lite",
-    config=types.GenerateContentConfig(
-        system_instruction="""
-        You are a financial education assistant.
+def create_chat():
+    return client.chats.create(
+        model=GEMINI_MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction="""
+            You are a financial education assistant.
 
-        Answer questions using the provided CONTEXT.
-        If the context does not contain enough information to answer the question,
-        say that the information is not available in the provided document.
+            Answer questions using the provided CONTEXT.
+            If the context does not contain enough information to answer the question,
+            say that the information is not available in the provided document.
 
-        Explain financial concepts clearly and simply.
-        Keep answers concise.
-        Do not give personalized financial advice.
-        """
+            Explain financial concepts clearly and simply.
+            Keep answers concise.
+            Do not give personalized financial advice.
+            """
+        )
     )
-)
 
+chat = create_chat()
 
 # Models
 class User(BaseModel):
@@ -119,38 +125,40 @@ def ask_ai(request: Question):
             }
 
         except errors.APIError as e:
-            print("ERROR:", e.code, e.message)
+            print("Gemini API error:", e.code, e.message)
 
             if e.code == 429:
                 raise HTTPException(
                     status_code=429,
-                    detail="Gemini free-tier quota has been reached. Please try again later."
+                    detail="Gemini API quota has been reached. Please try again later."
                 )
 
-            if e.code == 503 and attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-                continue
+            if e.code == 503:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+
+                raise HTTPException(
+                    status_code=503,
+                    detail="AI service is temporarily unavailable."
+                )
+
+            if e.code == 404:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Configured Gemini model is not available."
+                )
 
             raise HTTPException(
-                status_code=503,
-                detail="AI service is temporarily unavailable."
+                status_code=502,
+                detail="Unexpected error while communicating with the AI service."
             )
 
 @app.post("/reset")
 def reset_chat():
     global chat
 
-    chat = client.chats.create(
-        model="gemini-3.5-flash-lite",
-        config=types.GenerateContentConfig(
-            system_instruction="""
-            You are a financial education assistant.
-            Explain financial concepts clearly and simply.
-            Keep answers concise.
-            Do not give personalized financial advice.
-            """
-        )
-    )
+    chat = create_chat()
 
     return {
         "message": "Conversation memory cleared."
