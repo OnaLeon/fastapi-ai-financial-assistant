@@ -24,6 +24,9 @@ This project was created as a hands-on learning project focused on building and 
 - Automatically generated Swagger/OpenAPI documentation
 - Automated unit tests with pytest
 - Docker containerization
+- Environment-based Gemini model configuration
+- Structured Gemini API error handling
+- GitHub Actions CI for automated tests and Docker builds
 
 ## Tech Stack
 
@@ -250,7 +253,7 @@ Future improvements include:
 
 - Separate chat sessions for each user
 - Persistent conversation storage
-- CI/CD pipeline
+- Automated deployment pipeline
 - Persistent vector storage
 - Support for multiple uploaded documents
 - Logging and observability
