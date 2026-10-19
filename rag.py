@@ -9,14 +9,21 @@ from google.genai import types
 
 load_dotenv()
 
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(
-        timeout=30000
-    )
+DOCUMENT_PATH = Path(__file__).parent / "documents" / "financial_guide.txt"
+
+GEMINI_EMBEDDING_MODEL = os.getenv(
+    "GEMINI_EMBEDDING_MODEL",
+    "gemini-embedding-2"
 )
 
-DOCUMENT_PATH = Path(__file__).parent / "documents" / "financial_guide.txt"
+
+def get_client():
+    return genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY"),
+        http_options=types.HttpOptions(
+            timeout=30000
+        )
+    )
 
 
 def load_document():
@@ -43,8 +50,10 @@ def split_into_chunks(text, chunk_size=120, overlap=20):
 
 
 def create_embedding(text):
+    client = get_client()
+
     response = client.models.embed_content(
-        model="gemini-embedding-2",
+        model=GEMINI_EMBEDDING_MODEL,
         contents=text
     )
 
@@ -52,14 +61,28 @@ def create_embedding(text):
 
 
 def create_chunk_embeddings(chunks):
+    client = get_client()
+
+    contents = [
+        types.Content(
+            parts=[
+                types.Part.from_text(text=chunk)
+            ]
+        )
+        for chunk in chunks
+    ]
+
+    response = client.models.embed_content(
+        model=GEMINI_EMBEDDING_MODEL,
+        contents=contents
+    )
+
     chunk_embeddings = []
 
-    for chunk in chunks:
-        embedding = create_embedding(chunk)
-
+    for chunk, embedding in zip(chunks, response.embeddings):
         chunk_embeddings.append({
             "text": chunk,
-            "embedding": embedding
+            "embedding": embedding.values
         })
 
     return chunk_embeddings
