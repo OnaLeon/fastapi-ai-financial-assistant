@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 
 from rag import (
     load_document,
@@ -25,20 +26,38 @@ GEMINI_MODEL = os.getenv(
 app = FastAPI()
 
 # Create Gemini client
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(
-        timeout=30000
-    )
-)
+_client = None
 
-document = load_document()
-chunks = split_into_chunks(document)
-chunk_embeddings = create_chunk_embeddings(chunks)
+def get_client():
+    global _client
+
+    if _client is None:
+        _client = genai.Client(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            http_options=types.HttpOptions(
+                timeout=30000
+            )
+        )
+
+    return _client
+chunk_embeddings = None
+
+def get_chunk_embeddings():
+    global chunk_embeddings
+
+    if chunk_embeddings is None:
+        document = load_document()
+        chunks = split_into_chunks(document)
+        chunk_embeddings = create_chunk_embeddings(chunks)
+
+    return chunk_embeddings
+
 
 # Create one chat session
 # This object will remember the conversation while the server is running
 def create_chat():
+    client = get_client()
+
     return client.chats.create(
         model=GEMINI_MODEL,
         config=types.GenerateContentConfig(
@@ -56,7 +75,7 @@ def create_chat():
         )
     )
 
-chat = create_chat()
+sessions = {}
 
 # Models
 class User(BaseModel):
@@ -90,16 +109,33 @@ def create_user(user: User):
     users.append(user)
     return user
 
+@app.post("/sessions")
+def create_session():
+    session_id = str(uuid.uuid4())
 
-@app.post("/ask")
-def ask_ai(request: Question):
+    sessions[session_id] = create_chat()
+
+    return {
+        "session_id": session_id
+    }
+
+@app.post("/sessions/{session_id}/ask")
+def ask_question(session_id: str, request: Question):
+    if session_id not in sessions:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    chat = sessions[session_id]
+
     max_retries = 3
 
     for attempt in range(max_retries):
         try:
             relevant_chunks = find_relevant_chunks(
                 request.question,
-                chunk_embeddings,
+                get_chunk_embeddings(),
                 top_k=3
             )
             context = "\n\n".join(
@@ -154,12 +190,30 @@ def ask_ai(request: Question):
                 detail="Unexpected error while communicating with the AI service."
             )
 
-@app.post("/reset")
-def reset_chat():
-    global chat
+@app.post("/sessions/{session_id}/reset")
+def reset_chat(session_id: str):
+    if session_id not in sessions:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
 
-    chat = create_chat()
+    sessions[session_id] = create_chat()
 
     return {
         "message": "Conversation memory cleared."
+    }
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    if session_id not in sessions:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    del sessions[session_id]
+
+    return {
+        "message": "Session deleted."
     }

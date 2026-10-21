@@ -27,6 +27,9 @@ This project was created as a hands-on learning project focused on building and 
 - Environment-based Gemini model configuration
 - Structured Gemini API error handling
 - GitHub Actions CI for automated tests and Docker builds
+- Per-session conversational memory
+- Isolated chat sessions with unique UUIDs
+- API tests using FastAPI TestClient and mocked external dependencies
 
 ## Tech Stack
 
@@ -241,7 +244,8 @@ This is currently a learning project and has several intentional limitations:
 
 - Conversation history is stored only in application memory.
 - Conversation history is lost when the server restarts.
-- All users currently share the same conversation session.
+- Conversation sessions are currently stored only in application memory
+- Sessions are lost when the server restarts
 - Document embeddings are generated at application startup.
 - No persistent database is used yet.
 - Authentication is not implemented.
