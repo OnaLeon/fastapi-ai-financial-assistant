@@ -12,6 +12,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: financial_assistant
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/financial_assistant
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,6 +44,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Run database migrations
+        run: alembic upgrade head
 
       - name: Run tests
         run: pytest

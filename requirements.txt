@@ -4,3 +4,6 @@ google-genai
 python-dotenv
 pytest
 httpx
+sqlalchemy
+psycopg[binary]
+alembic

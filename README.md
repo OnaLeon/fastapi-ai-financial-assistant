@@ -2,7 +2,7 @@
 
 A small AI-powered backend application built with Python and FastAPI.
 
-The application integrates with the Google Gemini API and provides a conversational financial education assistant with temporary conversation memory and Retrieval-Augmented Generation (RAG).
+The application integrates with the Google Gemini API and provides a conversational financial education assistant with persistent PostgreSQL-backed conversation history and Retrieval-Augmented Generation (RAG).
 
 This project was created as a hands-on learning project focused on building and integrating LLM-powered applications.
 
@@ -11,25 +11,26 @@ This project was created as a hands-on learning project focused on building and 
 - FastAPI REST API
 - Google Gemini API integration
 - Custom system instructions
-- Conversational memory during the current session
-- Conversation reset endpoint
 - Retrieval-Augmented Generation (RAG)
 - Document chunking with overlap
-- Semantic search using embeddings
+- Semantic search using Gemini embeddings
 - Top-3 relevant context retrieval
 - Grounded answers based on source documents
-- Automatic retry handling for temporary AI service failures
+- Per-session conversational memory with unique UUIDs
+- PostgreSQL persistence for conversation sessions and messages
+- Persistent chat history restored after application restart
+- Session reset and deletion
+- Conversation history retrieval endpoint
+- SQLAlchemy ORM integration
+- Alembic database migrations
 - Request validation using Pydantic
-- Environment-based API key configuration
-- Automatically generated Swagger/OpenAPI documentation
-- Automated unit tests with pytest
+- Environment-based API and model configuration
+- Structured Gemini API error handling and retry logic
+- Automated unit and API tests with pytest
 - Docker containerization
-- Environment-based Gemini model configuration
-- Structured Gemini API error handling
-- GitHub Actions CI for automated tests and Docker builds
-- Per-session conversational memory
-- Isolated chat sessions with unique UUIDs
-- API tests using FastAPI TestClient and mocked external dependencies
+- Docker Compose for local PostgreSQL
+- GitHub Actions CI with automated tests, PostgreSQL and Docker builds
+- Automatically generated Swagger/OpenAPI documentation
 
 ## Tech Stack
 
@@ -37,24 +38,35 @@ This project was created as a hands-on learning project focused on building and 
 - FastAPI
 - Google Gemini API
 - Gemini Embeddings
-- Pydantic
-- Uvicorn
-- python-dotenv
+- PostgreSQL
+- SQLAlchemy
+- Alembic
 - Docker
+- Docker Compose
+- pytest
+- GitHub Actions
 
 ## Project Structure
 
 ```text
-fastapi-ai-financial-assistant/
+fastapi-demo/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── alembic/
 ├── documents/
-│   └── financial_guide.txt
+├── tests/
+├── database.py
+├── models.py
 ├── main.py
 ├── rag.py
+├── Dockerfile
+├── docker-compose.yml
+├── alembic.ini
+├── pytest.ini
 ├── requirements.txt
-├── README.md
-├── .gitignore
-├── .env
-└── .venv/
+├── .env.example
+└── README.md
 ```
 
 The `.env` file and `.venv` directory are excluded from Git and should not be committed.
@@ -86,17 +98,33 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure the Gemini API key
+### 4. Configure environment variables
 
 Create a `.env` file in the project root:
 
 ```text
 GEMINI_API_KEY=your_api_key_here
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_EMBEDDING_MODEL=gemini-embedding-2
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/financial_assistant
 ```
 
 Never commit your real API key to GitHub.
 
-### 5. Run the application
+### 5. Start PostgreSQL
+
+Start PostgreSQL using Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+Apply database migrations:
+```bash
+alembic upgrade head
+```
+
+### 6. Run the application
 
 ```bash
 uvicorn main:app --reload
@@ -104,19 +132,23 @@ uvicorn main:app --reload
 
 The API will be available at:
 
-```text
 http://127.0.0.1:8000
-```
 
 Interactive Swagger documentation:
 
-```text
 http://127.0.0.1:8000/docs
-```
 
 ## API Endpoints
 
-### POST `/ask`
+### Conversation Sessions
+
+- `POST /sessions` — create a new conversation session
+- `POST /sessions/{session_id}/ask` — ask a question within a session
+- `GET /sessions/{session_id}/messages` — retrieve persisted conversation history
+- `POST /sessions/{session_id}/reset` — clear the session conversation history
+- `DELETE /sessions/{session_id}` — delete the session and its messages
+
+### POST `/sessions/{session_id}/ask`
 
 Sends a question to the AI assistant.
 
@@ -148,29 +180,13 @@ The assistant uses a system instruction that tells it to:
 
 ### Conversation Memory
 
-The assistant remembers previous messages during the current server session.
+Each conversation has its own unique session ID.
 
-For example:
+User and assistant messages are stored in PostgreSQL. If the application restarts, the conversation history is loaded from the database and used to reconstruct the Gemini chat context.
 
-First request:
+This allows conversations to continue across application restarts while keeping individual sessions isolated from each other.
 
-```json
-{
-  "question": "My name is Ona and I have 10000 euros."
-}
-```
-
-Second request:
-
-```json
-{
-  "question": "How much money did I say I have?"
-}
-```
-
-The assistant can answer using information from the previous message.
-
-### POST `/reset`
+### POST `/sessions/{session_id}/reset`
 
 Clears the current conversation memory and starts a new chat session.
 
@@ -199,26 +215,32 @@ This allows the assistant to answer based on the provided source material instea
 
 ## Error Handling
 
-The application includes basic retry logic for temporary AI service failures.
+The application includes structured Gemini API error handling for quota limits, unavailable models and temporary service failures.
 
-If the Gemini API is temporarily unavailable, the application retries the request before returning an error response.
+Temporary service failures are retried automatically before an error response is returned.
 
 ## Testing
 
-The project includes automated unit tests for core RAG functionality, including:
+The project includes automated tests for:
 
 - document chunking;
 - cosine similarity;
-- semantic similarity calculations.
+- session creation;
+- session reset;
+- session deletion;
+- invalid session handling.
 
 Run the tests with:
 
 ```bash
 pytest
+```
+
+GitHub Actions automatically runs the test suite against a temporary PostgreSQL service on pull requests and changes to `main`.
 
 ## Docker
 
-The application can be built and run inside a Docker container.
+The FastAPI application can be packaged as a Docker image.
 
 Build the image:
 
@@ -226,28 +248,27 @@ Build the image:
 docker build -t financial-assistant .
 ```
 
-Run the container with the Gemini API key from the local `.env` file:
+PostgreSQL is currently started separately using Docker Compose:
 
 ```bash
-docker run --env-file .env -p 8000:8000 financial-assistant
+docker compose up -d
 ```
 
-The Swagger API documentation is then available at:
+The application itself can currently be run locally with:
 
-```text
-http://127.0.0.1:8000/docs
+```bash
+uvicorn main:app --reload
 ```
+
+A fully containerized FastAPI + PostgreSQL Docker Compose setup is planned.
 
 ## Current Limitations
 
 This is currently a learning project and has several intentional limitations:
 
-- Conversation history is stored only in application memory.
-- Conversation history is lost when the server restarts.
-- Conversation sessions are currently stored only in application memory
-- Sessions are lost when the server restarts
-- Document embeddings are generated at application startup.
-- No persistent database is used yet.
+- Gemini chat objects are cached in application memory but reconstructed from PostgreSQL history after restart
+- RAG embeddings are currently generated at runtime rather than stored persistently
+- Only a single built-in knowledge document is currently supported
 - Authentication is not implemented.
 - The application currently has no separate frontend.
 
@@ -255,13 +276,13 @@ This is currently a learning project and has several intentional limitations:
 
 Future improvements include:
 
-- Separate chat sessions for each user
-- Persistent conversation storage
-- Automated deployment pipeline
-- Persistent vector storage
-- Support for multiple uploaded documents
-- Logging and observability
-- Azure deployment
+- Store document embeddings persistently using PostgreSQL + pgvector
+- Support multiple documents and document uploads
+- Add structured logging and observability
+- Deploy the application to Azure
+- Add automated deployment/CD
+- Build a React/TypeScript frontend
+- Add tool calling / agent capabilities
 
 ## Learning Goals
 
