@@ -9,11 +9,15 @@ from rag import (
     find_relevant_chunks,
 )
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from google import genai
 from google.genai import types, errors
 from pydantic import BaseModel
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
+from database import get_db
+from models import ConversationSession, Message
 
 # Load variables from .env
 load_dotenv()
@@ -54,8 +58,7 @@ def get_chunk_embeddings():
 
 
 # Create one chat session
-# This object will remember the conversation while the server is running
-def create_chat():
+def create_chat(history=None):
     client = get_client()
 
     return client.chats.create(
@@ -63,17 +66,71 @@ def create_chat():
         config=types.GenerateContentConfig(
             system_instruction="""
             You are a financial education assistant.
-
             Answer questions using the provided CONTEXT.
             If the context does not contain enough information to answer the question,
             say that the information is not available in the provided document.
-
             Explain financial concepts clearly and simply.
             Keep answers concise.
             Do not give personalized financial advice.
             """
-        )
+        ),
+        history=history or []
     )
+
+def get_or_restore_chat(session_id: str, db: Session):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    db_session = db.get(
+        ConversationSession,
+        session_uuid
+    )
+
+    if db_session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    if session_id in sessions:
+        return sessions[session_id]
+
+    db_messages = db.scalars(
+        select(Message)
+        .where(Message.session_id == session_uuid)
+        .order_by(Message.id)
+    ).all()
+
+    history = []
+
+    for message in db_messages:
+        role = (
+            "model"
+            if message.role == "assistant"
+            else "user"
+        )
+
+        history.append(
+            types.Content(
+                role=role,
+                parts=[
+                    types.Part.from_text(
+                        text=message.content
+                    )
+                ]
+            )
+        )
+
+    chat = create_chat(history=history)
+
+    sessions[session_id] = chat
+
+    return chat
 
 sessions = {}
 
@@ -110,8 +167,14 @@ def create_user(user: User):
     return user
 
 @app.post("/sessions")
-def create_session():
-    session_id = str(uuid.uuid4())
+def create_session(db: Session = Depends(get_db)):
+    db_session = ConversationSession()
+
+    db.add(db_session)
+    db.commit()
+    db.refresh(db_session)
+
+    session_id = str(db_session.id)
 
     sessions[session_id] = create_chat()
 
@@ -120,15 +183,17 @@ def create_session():
     }
 
 @app.post("/sessions/{session_id}/ask")
-def ask_question(session_id: str, request: Question):
-    if session_id not in sessions:
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found."
-        )
+def ask_question(
+    session_id: str,
+    request: Question,
+    db: Session = Depends(get_db)
+):
 
-    chat = sessions[session_id]
-
+    chat = get_or_restore_chat(
+        session_id,
+        db
+    )
+    
     max_retries = 3
 
     for attempt in range(max_retries):
@@ -153,6 +218,25 @@ def ask_question(session_id: str, request: Question):
             response = chat.send_message(
                 message=prompt
             )
+
+            user_message = Message(
+                session_id=session_id,
+                role="user",
+                content=request.question
+            )
+
+            assistant_message = Message(
+                session_id=session_id,
+                role="assistant",
+                content=response.text
+            )
+
+            db.add_all([
+                user_message,
+                assistant_message
+            ])
+
+            db.commit()
 
             return {
                 "answer": response.text,
@@ -190,13 +274,79 @@ def ask_question(session_id: str, request: Question):
                 detail="Unexpected error while communicating with the AI service."
             )
 
-@app.post("/sessions/{session_id}/reset")
-def reset_chat(session_id: str):
-    if session_id not in sessions:
+@app.get("/sessions/{session_id}/messages")
+def get_messages(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
         raise HTTPException(
             status_code=404,
             detail="Session not found."
         )
+
+    db_session = db.get(
+        ConversationSession,
+        session_uuid
+    )
+
+    if db_session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    messages = db.scalars(
+        select(Message)
+        .where(Message.session_id == session_uuid)
+        .order_by(Message.id)
+    ).all()
+
+    return {
+        "session_id": session_id,
+        "messages": [
+            {
+                "id": message.id,
+                "role": message.role,
+                "content": message.content,
+                "created_at": message.created_at
+            }
+            for message in messages
+        ]
+    }
+
+@app.post("/sessions/{session_id}/reset")
+def reset_chat(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    db_session = db.get(
+        ConversationSession,
+        session_uuid
+    )
+
+    if db_session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    db.execute(
+        delete(Message)
+        .where(Message.session_id == session_uuid)
+    )
+
+    db.commit()
 
     sessions[session_id] = create_chat()
 
@@ -205,14 +355,33 @@ def reset_chat(session_id: str):
     }
 
 @app.delete("/sessions/{session_id}")
-def delete_session(session_id: str):
-    if session_id not in sessions:
+def delete_session(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
         raise HTTPException(
             status_code=404,
             detail="Session not found."
         )
 
-    del sessions[session_id]
+    db_session = db.get(
+        ConversationSession,
+        session_uuid
+    )
+
+    if db_session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found."
+        )
+
+    db.delete(db_session)
+    db.commit()
+
+    sessions.pop(session_id, None)
 
     return {
         "message": "Session deleted."
